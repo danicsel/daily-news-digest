@@ -1,4 +1,4 @@
-import os, json, datetime as dt, pathlib, html
+import os, json, re, datetime as dt, pathlib, html, traceback
 import yaml, feedparser
 from anthropic import Anthropic
 
@@ -27,9 +27,25 @@ def fetch(feeds):
                               "snippet": e.get("summary", "")[:300]})
     return items
 
+def extract_json(raw):
+    s = raw.strip()
+    if "```" in s:
+        m = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+        if m:
+            s = m.group(1).strip()
+    if not s.startswith("{"):
+        a, b = s.find("{"), s.rfind("}")
+        if a != -1 and b != -1:
+            s = s[a:b+1]
+    return json.loads(s)
+
 def triage(items):
     key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key or not items:
+    if not key:
+        print("!!! No ANTHROPIC_API_KEY in environment — secret not reaching the script.")
+        return items, {}
+    if not items:
+        print("!!! fetch() returned 0 items — all feeds empty or outside the 26h window.")
         return items, {}
     try:
         client = Anthropic(api_key=key)
@@ -49,7 +65,11 @@ def triage(items):
             '"items":[{"i":<index>,"score":1-5,"pill":"Politics","line":"..."}]}')
         r = client.messages.create(model="claude-haiku-4-5", max_tokens=2500,
                                    messages=[{"role": "user", "content": prompt}])
-        data = json.loads(r.content[0].text)
+        raw = r.content[0].text
+        print("=== RAW CLAUDE RESPONSE ===")
+        print(raw[:4000])
+        print("=== END ===")
+        data = extract_json(raw)
         out = []
         for p in data.get("items", []):
             it = items[p["i"]]
@@ -57,12 +77,14 @@ def triage(items):
             it["pill"] = p.get("pill", "")
             out.append(it)
         out.sort(key=lambda x: -x.get("score", 0))
+        print(f"Triage OK: {len(out)} items, summaries={list(data.get('summaries', {}).keys())}")
         return out, data.get("summaries", {})
     except Exception as ex:
-        print(f"Triage skipped ({ex}); showing all items.")
+        print(f"!!! Triage FAILED: {type(ex).__name__}: {ex}")
+        traceback.print_exc()
         return items, {}
 
-def render(items, summaries):
+def render(items, summaries, ai_on):
     now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)  # Bucharest
     by = {}
     for it in items:
@@ -73,8 +95,8 @@ def render(items, summaries):
         if not xs:
             continue
         xs = xs[:TOP_N]
-        summary = summaries.get(topic, "")
-        summary_html = f'<p class="summary">{html.escape(summary)}</p>' if summary else ""
+        summ = summaries.get(topic, "")
+        summ_html = f'<p class="summary">{html.escape(summ)}</p>' if summ else ""
         rows = []
         for x in xs:
             pill = f'<span class="pill">{html.escape(x["pill"])}</span>' if x.get("pill") else ""
@@ -83,8 +105,10 @@ def render(items, summaries):
                 f'<li><a href="{html.escape(x["link"])}">{html.escape(x["title"])}</a>{pill}'
                 f'<span class="src">{html.escape(x["source"])}</span>{note}</li>')
         sections.append(
-            f'<section><h2>{html.escape(topic)}</h2>{summary_html}<ul>{"".join(rows)}</ul></section>')
+            f'<section><h2>{html.escape(topic)}</h2>{summ_html}<ul>{"".join(rows)}</ul></section>')
     body = "".join(sections) or "<p class='empty'>Nothing new in the last 26 hours.</p>"
+    banner = "" if ai_on else ('<p class="banner">AI curation OFF — showing raw feeds. '
+                               'Check the workflow log for the reason.</p>')
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Daily Brief</title><style>
@@ -95,6 +119,8 @@ font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}}
 header{{border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:8px}}
 h1{{font-size:30px;margin:0;letter-spacing:-.02em}}
 .date{{color:var(--sub);font-size:14px;margin-top:4px}}
+.banner{{background:#fde8e6;color:var(--accent);padding:8px 12px;border-radius:6px;
+font-size:13px;margin:16px 0}}
 section{{margin-top:40px}}h2{{font-size:13px;text-transform:uppercase;letter-spacing:.08em;
 color:var(--accent);margin:0 0 8px}}
 .summary{{color:var(--sub);font-size:14.5px;line-height:1.55;margin:0 0 16px;
@@ -110,11 +136,12 @@ padding:2px 8px;border-radius:999px;margin-left:8px;vertical-align:middle}}
 .empty{{color:var(--sub)}}
 </style></head><body><div class="wrap"><header>
 <h1>Daily Brief</h1><div class="date">{now:%A, %d %B %Y · %H:%M} Bucharest</div>
-</header>{body}</div></body></html>"""
+</header>{banner}{body}</div></body></html>"""
 
 if __name__ == "__main__":
     feeds = yaml.safe_load(open("feeds.yaml"))
     picked, summaries = triage(fetch(feeds))
+    ai_on = bool(summaries)
     out = pathlib.Path("_site"); out.mkdir(exist_ok=True)
-    (out / "index.html").write_text(render(picked, summaries), encoding="utf-8")
-    print(f"Wrote _site/index.html ({len(picked)} items)")
+    (out / "index.html").write_text(render(picked, summaries, ai_on), encoding="utf-8")
+    print(f"Wrote _site/index.html ({len(picked)} items, AI={'on' if ai_on else 'OFF'})")
