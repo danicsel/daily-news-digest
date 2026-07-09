@@ -8,6 +8,7 @@ TOPIC_ORDER = ["Romania", "Healthcare", "Tech"]
 TOP_N = 5
 ISSUES_DIR = pathlib.Path("issues")   # committed to the repo (persists)
 SITE_DIR = pathlib.Path("_site")      # rebuilt every run, deployed to Pages
+NAMEPLATE = "Daniel\u2019s Daily <em>Briefing</em>"
 feedparser.USER_AGENT = "news-digest/1.0 (+github actions)"
 
 # ---------- feed parsing ----------
@@ -70,10 +71,10 @@ def triage(items):
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         print("!!! No ANTHROPIC_API_KEY in environment.")
-        return items, {}
+        return items, {}, []
     if not items:
         print("!!! fetch() returned 0 items.")
-        return items, {}
+        return items, {}, []
     try:
         client = Anthropic(api_key=key)
         listing = "\n".join(f'{i}. [{x["topic"]}\u00b7{x["source"]}] {x["title"]} \u2014 {x["snippet"]}'
@@ -96,19 +97,31 @@ def triage(items):
         print("=== RAW CLAUDE RESPONSE ===")
         print(raw[:4000]); print("=== END ===")
         data = extract_json(raw)
-        out = []
+        out, picked_idx = [], set()
         for p in data.get("items", []):
-            it = items[p["i"]]
+            i = p.get("i")
+            if not isinstance(i, int) or i < 0 or i >= len(items):
+                continue
+            it = items[i]
             it["score"] = p.get("score", 0); it["line"] = p.get("line", "")
             it["pill"] = p.get("pill", "")
-            out.append(it)
+            out.append(it); picked_idx.add(i)
         out.sort(key=lambda x: -x.get("score", 0))
-        print(f"Triage OK: {len(out)} items, summaries={list(data.get('summaries', {}).keys())}")
-        return out, data.get("summaries", {})
+        seen = {x["link"] for x in out}
+        others = []
+        for i, it in enumerate(items):
+            if i in picked_idx or not it.get("title") or it["link"] in seen:
+                continue
+            seen.add(it["link"]); others.append(it)
+            if len(others) >= 20:
+                break
+        print(f"Triage OK: {len(out)} picked, {len(others)} other, "
+              f"summaries={list(data.get('summaries', {}).keys())}")
+        return out, data.get("summaries", {}), others
     except Exception as ex:
         print(f"!!! Triage FAILED: {type(ex).__name__}: {ex}")
         traceback.print_exc()
-        return items, {}
+        return items, {}, []
 
 # ---------- rendering ----------
 HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -143,7 +156,7 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:"Newsreader"
 .eyebrow .topic{{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--petrol)}}
 .eyebrow .rule{{flex:1;height:1px;background:var(--line)}}
 .eyebrow .count{{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--brass);letter-spacing:.1em}}
-.standfirst{{font-style:italic;font-size:clamp(17px,2.1vw,21px);line-height:1.5;color:#42403a;margin:0 0 26px;max-width:56ch}}
+.standfirst{{font-style:italic;font-size:clamp(17px,2.1vw,21px);line-height:1.5;color:#42403a;margin:0 0 26px;max-width:100%}}
 .item{{margin:0}}.item .body{{min-width:0}}
 .meta{{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}}
 .pill{{font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--petrol);background:rgba(14,77,82,.10);padding:3px 8px;border-radius:3px}}
@@ -187,12 +200,22 @@ a:focus-visible{{outline:2px solid var(--petrol);outline-offset:3px;border-radiu
 .arc-teaser{{font-size:17px;font-weight:500;line-height:1.25}}
 .arc-count{{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--brass);white-space:nowrap}}
 .empty{{color:var(--muted)}}
+/* other news */
+.other .eyebrow .topic{{color:var(--brass)}}
+.otherlist{{columns:2;column-gap:44px;margin-top:2px}}
+.orow{{display:block;break-inside:avoid;padding:11px 0;border-top:1px solid var(--line);text-decoration:none;color:var(--ink)}}
+.orow:hover .otitle{{color:var(--petrol)}}
+.ometa{{display:block;margin-bottom:3px}}
+.otag{{font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);background:rgba(156,123,52,.12);padding:2px 6px;border-radius:3px}}
+.osrc{{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-left:8px}}
+.otitle{{display:block;font-size:15px;font-weight:500;line-height:1.3}}
 @media (max-width:720px){{
  .wrap{{padding:28px 20px 72px}}
  .item.lead{{grid-template-columns:1fr;gap:18px}}.item.lead .thumb{{aspect-ratio:16/9}}
  .grid{{grid-template-columns:1fr;gap:24px}}
  .grid .item .thumb{{width:88px;margin-right:14px}}
  .arc-row{{grid-template-columns:1fr;gap:4px}}.arc-count{{display:none}}
+ .otherlist{{columns:1}}
 }}
 </style></head><body><div class="wrap">"""
 
@@ -247,6 +270,19 @@ def render_issue(data, all_dates, idx):
             f'{summ_html}{lead}{rest_html}</section>')
     body = "".join(sections) or '<p class="empty">Nothing new this day.</p>'
 
+    others = data.get("others", [])
+    if others:
+        rows = "".join(
+            f'<a class="orow" href="{html.escape(o["link"])}"><span class="ometa">'
+            f'<span class="otag">{html.escape(o["topic"])}</span>'
+            f'<span class="osrc">{html.escape(o["source"])}</span></span>'
+            f'<span class="otitle">{html.escape(o["title"])}</span></a>'
+            for o in others)
+        body += (f'<section class="section other"><div class="eyebrow">'
+                 f'<span class="topic">Other news</span><span class="rule"></span>'
+                 f'<span class="count">{len(others):02d}</span></div>'
+                 f'<div class="otherlist">{rows}</div></section>')
+
     newer = all_dates[idx-1] if idx > 0 else None
     older = all_dates[idx+1] if idx < len(all_dates)-1 else None
     nav = ['<nav class="issue-nav">']
@@ -264,10 +300,10 @@ def render_issue(data, all_dates, idx):
     banner = "" if ai_on else ('<div class="banner">AI curation off \u2014 raw feeds for this day.</div>')
 
     home = "index.html" if is_latest else f"{date}.html"
-    return (HEAD.format(title=f"Daily Brief \u2014 {d:%d %b %Y}") +
+    return (HEAD.format(title=f"Daniel\u2019s Daily Briefing \u2014 {d:%d %b %Y}") +
             f'<header class="masthead">'
             f'<p class="kicker">Private edition \u00b7 curated for Daniel</p>'
-            f'<h1 class="nameplate"><a href="{home}">Daily <em>Brief</em></a></h1>'
+            f'<h1 class="nameplate"><a href="{home}">{NAMEPLATE}</a></h1>'
             f'<div class="dateline"><b>{d:%A, %d %B %Y}</b><span class="dot">\u25c6</span>'
             f'<span>No. {issue_no}</span><span class="dot">\u25c6</span><span>Bucharest</span>'
             f'<span class="dot">\u25c6</span><span>{"AI curated" if ai_on else "raw feed"}</span></div>'
@@ -294,10 +330,10 @@ def render_archive(index):
         out.append('</div>')
         blocks.append("".join(out))
     body = "".join(blocks) or '<p class="empty">No issues yet.</p>'
-    return (HEAD.format(title="Daily Brief \u2014 Archive") +
+    return (HEAD.format(title="Daniel\u2019s Daily Briefing \u2014 Archive") +
             f'<header class="masthead">'
             f'<p class="kicker">Private edition \u00b7 curated for Daniel</p>'
-            f'<h1 class="nameplate"><a href="index.html">Daily <em>Brief</em></a></h1>'
+            f'<h1 class="nameplate"><a href="index.html">{NAMEPLATE}</a></h1>'
             f'<div class="dateline"><b>Archive</b><span class="dot">\u25c6</span>'
             f'<span>{len(index)} issues</span></div>'
             f'<nav class="issue-nav"><a href="index.html">\u2190 Back to today</a></nav>'
@@ -321,7 +357,7 @@ def build_site():
         (SITE_DIR / "index.html").write_text(render_issue(index[0], all_dates, 0), encoding="utf-8")
     else:
         (SITE_DIR / "index.html").write_text(
-            HEAD.format(title="Daily Brief") + '<p class="empty">No issues yet.</p></div></body></html>',
+            HEAD.format(title="Daniel\u2019s Daily Briefing") + '<p class="empty">No issues yet.</p></div></body></html>',
             encoding="utf-8")
     (SITE_DIR / "archive.html").write_text(render_archive(index), encoding="utf-8")
     print(f"Built site: {len(index)} issues.")
