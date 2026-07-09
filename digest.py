@@ -8,6 +8,10 @@ TOPIC_ORDER = ["Romania", "Healthcare", "Tech"]
 TOP_N = 5
 feedparser.USER_AGENT = "news-digest/1.0 (+github actions)"
 
+def clean_text(t):
+    t = re.sub(r"<[^>]+>", "", t or "")          # drop any HTML tags
+    return html.unescape(t).strip()               # decode &amp; etc.
+
 def fetch(feeds):
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=LOOKBACK_H)
     items = []
@@ -23,8 +27,8 @@ def fetch(feeds):
                 if when and when < cutoff:
                     continue
                 items.append({"topic": topic, "source": s["name"],
-                              "title": e.get("title", ""), "link": e.get("link", ""),
-                              "snippet": e.get("summary", "")[:300]})
+                                "title": clean_text(e.get("title", "")), "link": e.get("link", ""),
+                                "snippet": e.get("summary", "")[:300]})
     return items
 
 def extract_json(raw):
