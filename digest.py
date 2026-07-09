@@ -5,6 +5,7 @@ from anthropic import Anthropic
 INTERESTS = "Romania news, healthcare innovation, Apple ecosystem and general technology"
 LOOKBACK_H = 26
 TOPIC_ORDER = ["Romania", "Healthcare", "Tech"]
+TOP_N = 5
 feedparser.USER_AGENT = "news-digest/1.0 (+github actions)"
 
 def fetch(feeds):
@@ -29,28 +30,39 @@ def fetch(feeds):
 def triage(items):
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key or not items:
-        return items
+        return items, {}
     try:
         client = Anthropic(api_key=key)
-        listing = "\n".join(f'{i}. [{x["source"]}] {x["title"]} — {x["snippet"]}'
+        listing = "\n".join(f'{i}. [{x["topic"]}·{x["source"]}] {x["title"]} — {x["snippet"]}'
                             for i, x in enumerate(items))
-        prompt = (f"My interests: {INTERESTS}.\n\nToday's headlines:\n{listing}\n\n"
-                  "Return ONLY a JSON array of the genuinely relevant, non-duplicate ones, "
-                  'each: {"i": <index>, "score": 1-5, "line": "<one-sentence why-it-matters>"}. '
-                  "Skip filler. No prose, no code fences.")
-        r = client.messages.create(model="claude-haiku-4-5", max_tokens=2000,
+        prompt = (
+            f"My interests: {INTERESTS}.\n\nToday's headlines (indexed):\n{listing}\n\n"
+            "Tasks:\n"
+            "1. For each category (Romania, Healthcare, Tech) pick the 3-5 most important, "
+            "genuinely relevant, non-duplicate stories.\n"
+            "2. Tag each with a short category pill (e.g. Politics, Business, Economy, AI, "
+            "Apple, Policy, Research, Startups, Security).\n"
+            "3. Give each a one-sentence 'why it matters' line.\n"
+            "4. Write a 1-2 sentence summary of the day for each category.\n\n"
+            "Return ONLY this JSON, no prose or code fences:\n"
+            '{"summaries":{"Romania":"...","Healthcare":"...","Tech":"..."},'
+            '"items":[{"i":<index>,"score":1-5,"pill":"Politics","line":"..."}]}')
+        r = client.messages.create(model="claude-haiku-4-5", max_tokens=2500,
                                    messages=[{"role": "user", "content": prompt}])
-        picks = json.loads(r.content[0].text)
+        data = json.loads(r.content[0].text)
         out = []
-        for p in picks:
-            it = items[p["i"]]; it["score"] = p["score"]; it["line"] = p["line"]
+        for p in data.get("items", []):
+            it = items[p["i"]]
+            it["score"] = p.get("score", 0); it["line"] = p.get("line", "")
+            it["pill"] = p.get("pill", "")
             out.append(it)
-        return sorted(out, key=lambda x: -x.get("score", 0))
+        out.sort(key=lambda x: -x.get("score", 0))
+        return out, data.get("summaries", {})
     except Exception as ex:
         print(f"Triage skipped ({ex}); showing all items.")
-        return items
+        return items, {}
 
-def render(items):
+def render(items, summaries):
     now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)  # Bucharest
     by = {}
     for it in items:
@@ -60,13 +72,18 @@ def render(items):
         xs = by.get(topic)
         if not xs:
             continue
+        xs = xs[:TOP_N]
+        summary = summaries.get(topic, "")
+        summary_html = f'<p class="summary">{html.escape(summary)}</p>' if summary else ""
         rows = []
         for x in xs:
+            pill = f'<span class="pill">{html.escape(x["pill"])}</span>' if x.get("pill") else ""
             note = f'<span class="note">{html.escape(x["line"])}</span>' if x.get("line") else ""
             rows.append(
-                f'<li><a href="{html.escape(x["link"])}">{html.escape(x["title"])}</a>'
+                f'<li><a href="{html.escape(x["link"])}">{html.escape(x["title"])}</a>{pill}'
                 f'<span class="src">{html.escape(x["source"])}</span>{note}</li>')
-        sections.append(f'<section><h2>{html.escape(topic)}</h2><ul>{"".join(rows)}</ul></section>')
+        sections.append(
+            f'<section><h2>{html.escape(topic)}</h2>{summary_html}<ul>{"".join(rows)}</ul></section>')
     body = "".join(sections) or "<p class='empty'>Nothing new in the last 26 hours.</p>"
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -79,10 +96,16 @@ header{{border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:8px
 h1{{font-size:30px;margin:0;letter-spacing:-.02em}}
 .date{{color:var(--sub);font-size:14px;margin-top:4px}}
 section{{margin-top:40px}}h2{{font-size:13px;text-transform:uppercase;letter-spacing:.08em;
-color:var(--accent);margin:0 0 12px}}
+color:var(--accent);margin:0 0 8px}}
+.summary{{color:var(--sub);font-size:14.5px;line-height:1.55;margin:0 0 16px;
+padding-bottom:14px;border-bottom:1px solid var(--line)}}
 ul{{list-style:none;margin:0;padding:0}}li{{padding:14px 0;border-bottom:1px solid var(--line)}}
 a{{color:var(--ink);text-decoration:none;font-weight:600;font-size:17px}}
-a:hover{{color:var(--accent)}}.src{{color:var(--sub);font-size:13px;margin-left:8px}}
+a:hover{{color:var(--accent)}}
+.pill{{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;
+letter-spacing:.05em;color:var(--accent);background:rgba(181,68,59,.10);
+padding:2px 8px;border-radius:999px;margin-left:8px;vertical-align:middle}}
+.src{{color:var(--sub);font-size:13px;margin-left:8px}}
 .note{{display:block;color:var(--sub);font-size:14px;margin-top:3px}}
 .empty{{color:var(--sub)}}
 </style></head><body><div class="wrap"><header>
@@ -91,6 +114,7 @@ a:hover{{color:var(--accent)}}.src{{color:var(--sub);font-size:13px;margin-left:
 
 if __name__ == "__main__":
     feeds = yaml.safe_load(open("feeds.yaml"))
+    picked, summaries = triage(fetch(feeds))
     out = pathlib.Path("_site"); out.mkdir(exist_ok=True)
-    (out / "index.html").write_text(render(triage(fetch(feeds))), encoding="utf-8")
-    print("Wrote _site/index.html")
+    (out / "index.html").write_text(render(picked, summaries), encoding="utf-8")
+    print(f"Wrote _site/index.html ({len(picked)} items)")
