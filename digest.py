@@ -364,11 +364,11 @@ def build_site():
 
 if __name__ == "__main__":
     feeds = yaml.safe_load(open("feeds.yaml"))
-    picked, summaries = triage(fetch(feeds))
+    picked, summaries, others = triage(fetch(feeds))
     today = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)).date().isoformat()
     ISSUES_DIR.mkdir(exist_ok=True)
     json.dump({"date": today, "ai_on": bool(summaries),
-               "summaries": summaries, "items": picked},
+               "summaries": summaries, "items": picked, "others": others},
               open(ISSUES_DIR / f"{today}.json", "w", encoding="utf-8"), ensure_ascii=False)
     print(f"Saved issue {today} ({len(picked)} items, AI={'on' if summaries else 'OFF'})")
     build_site()
