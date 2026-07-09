@@ -193,7 +193,7 @@ body{{margin:0;background:var(--paper);color:var(--ink);
 .eyebrow .count{{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--brass);
   letter-spacing:.1em}}
 .standfirst{{font-style:italic;font-size:clamp(17px,2.1vw,21px);line-height:1.5;
-  color:#42403a;margin:0 0 26px;max-width:56ch}}
+  color:#42403a;margin:0 0 26px;max-width:100%}}
 .item{{margin:0}}
 .item .body{{min-width:0}}
 .meta{{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}}
