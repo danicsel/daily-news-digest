@@ -1,20 +1,37 @@
 Romania:
-  - {name: HotNews, url: https://hotnews.ro/feed}
-  - {name: G4Media, url: https://www.g4media.ro/feed}
-  - {name: Recorder, url: https://recorder.ro/feed/}
-  - {name: Economedia, url: https://economedia.ro/feed}
-  - {name: Digi24, url: https://www.digi24.ro/rss}
+  - name: HotNews
+    url: "https://hotnews.ro/feed"
+  - name: G4Media
+    url: "https://www.g4media.ro/feed"
+  - name: Recorder
+    url: "https://recorder.ro/feed/"
+  - name: Economedia
+    url: "https://economedia.ro/feed"
+  - name: Digi24
+    url: "https://www.digi24.ro/rss"
 Healthcare:
-  - {name: STAT News, url: https://www.statnews.com/feed/}
-  - {name: Endpoints, url: https://endpts.com/feed/}
-  - {name: Fierce Healthcare, url: https://www.fiercehealthcare.com/rss/xml}
-  - {name: MobiHealthNews, url: https://www.mobihealthnews.com/rss.xml}
-  - {name: MedCity News, url: https://medcitynews.com/feed/}
+  - name: STAT News
+    url: "https://www.statnews.com/feed/"
+  - name: Endpoints
+    url: "https://endpts.com/feed/"
+  - name: Fierce Healthcare
+    url: "https://www.fiercehealthcare.com/rss/xml"
+  - name: MobiHealthNews
+    url: "https://www.mobihealthnews.com/rss.xml"
+  - name: MedCity News
+    url: "https://medcitynews.com/feed/"
 Tech:
-  - {name: 9to5Mac, url: https://9to5mac.com/feed/}
-  - {name: TechCrunch, url: https://techcrunch.com/feed/}
-  - {name: Macworld, url: https://www.macworld.com/feed}
-  - {name: MacRumors, url: https://feeds.macrumors.com/MacRumors-All}
-  - {name: Ars Technica, url: https://feeds.arstechnica.com/arstechnica/index}
-  - {name: The Verge, url: https://www.theverge.com/rss/index.xml}
-  - {name: HN 100+, url: https://hnrss.org/frontpage?points=100}
+  - name: 9to5Mac
+    url: "https://9to5mac.com/feed/"
+  - name: TechCrunch
+    url: "https://techcrunch.com/feed/"
+  - name: Macworld
+    url: "https://www.macworld.com/feed"
+  - name: MacRumors
+    url: "https://feeds.macrumors.com/MacRumors-All"
+  - name: Ars Technica
+    url: "https://feeds.arstechnica.com/arstechnica/index"
+  - name: The Verge
+    url: "https://www.theverge.com/rss/index.xml"
+  - name: HN 100+
+    url: "https://hnrss.org/frontpage?points=100"
