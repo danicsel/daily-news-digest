@@ -1,5 +1,7 @@
 name: news-digest
 on:
+  schedule:
+    - cron: "0 9 * * *"      # 12:00 Bucharest (summer, EEST); 11:00 in winter
   workflow_dispatch:
   repository_dispatch:
     types: [daily-digest]
