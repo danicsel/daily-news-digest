@@ -1,6 +1,6 @@
 name: news-digest
 on:
-  schedule: [{cron: "0 4 * * *"}]   # 08:00 Bucharest (summer)
+  schedule: [{cron: "*/5 * * * *"}]   # 08:00 Bucharest (summer)
   workflow_dispatch:
 permissions:
   contents: write      # needed to save each day's issue back to the repo
